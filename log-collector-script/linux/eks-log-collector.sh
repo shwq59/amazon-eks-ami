@@ -20,7 +20,7 @@ export LANG="C"
 export LC_ALL="C"
 
 # Global options
-readonly PROGRAM_VERSION="0.7.3"
+readonly PROGRAM_VERSION="0.7.6"
 readonly PROGRAM_SOURCE="https://github.com/awslabs/amazon-eks-ami/blob/master/log-collector-script/"
 readonly PROGRAM_NAME="$(basename "$0" .sh)"
 readonly PROGRAM_DIR="/opt/log-collector"
@@ -50,6 +50,7 @@ REQUIRED_UTILS=(
 
 COMMON_DIRECTORIES=(
   kernel
+  modinfo
   system
   docker
   containerd
@@ -71,6 +72,7 @@ COMMON_LOGS=(
   pods           # eks
   cloud-init.log
   cloud-init-output.log
+  user-data.log
   kube-proxy.log
 )
 
@@ -262,9 +264,11 @@ collect() {
   get_region
   get_common_logs
   get_kernel_info
+  get_modinfo
   get_mounts_info
   get_selinux_info
   get_iptables_info
+  get_iptables_legacy_info
   get_pkglist
   get_system_services
   get_containerd_info
@@ -275,6 +279,8 @@ collect() {
   get_sysctls_info
   get_networking_info
   get_cni_config
+  get_cni_configuration_variables
+  get_network_policy_ebpf_info
   get_docker_logs
   get_sandboxImage_info
   get_cpu_throttled_processes
@@ -323,7 +329,7 @@ get_selinux_info() {
 
 get_iptables_info() {
   if ! command -v iptables > /dev/null 2>&1; then
-    echo "IPtables not installed" | tee -a iptables.txt
+    echo "IPtables not installed" | tee -a "${COLLECT_DIR}"/iptables.txt
   else
     try "collect iptables information"
     iptables --wait 1 --numeric --verbose --list --table mangle | tee "${COLLECT_DIR}"/networking/iptables-mangle.txt | sed '/^num\|^$\|^Chain\|^\ pkts.*.destination/d' | echo -e "=======\nTotal Number of Rules: $(wc -l)" >> "${COLLECT_DIR}"/networking/iptables-mangle.txt
@@ -331,6 +337,21 @@ get_iptables_info() {
     iptables --wait 1 --numeric --verbose --list --table nat | tee "${COLLECT_DIR}"/networking/iptables-nat.txt | sed '/^num\|^$\|^Chain\|^\ pkts.*.destination/d' | echo -e "=======\nTotal Number of Rules: $(wc -l)" >> "${COLLECT_DIR}"/networking/iptables-nat.txt
     iptables --wait 1 --numeric --verbose --list | tee "${COLLECT_DIR}"/networking/iptables.txt | sed '/^num\|^$\|^Chain\|^\ pkts.*.destination/d' | echo -e "=======\nTotal Number of Rules: $(wc -l)" >> "${COLLECT_DIR}"/networking/iptables.txt
     iptables-save > "${COLLECT_DIR}"/networking/iptables-save.txt
+  fi
+
+  ok
+}
+
+get_iptables_legacy_info() {
+  if ! command -v iptables-legacy > /dev/null 2>&1; then
+    echo "IPtables-legacy not installed" | tee -a "${COLLECT_DIR}"/iptables-legacy.txt
+  else
+    try "collect iptables-legacy information"
+    iptables-legacy --wait 1 --numeric --verbose --list --table mangle | tee "${COLLECT_DIR}"/networking/iptables-legacy-mangle.txt | sed '/^num\|^$\|^Chain\|^\ pkts.*.destination/d' | echo -e "=======\nTotal Number of Rules: $(wc -l)" >> "${COLLECT_DIR}"/networking/iptables-legacy-mangle.txt
+    iptables-legacy --wait 1 --numeric --verbose --list --table filter | tee "${COLLECT_DIR}"/networking/iptables-legacy-filter.txt | sed '/^num\|^$\|^Chain\|^\ pkts.*.destination/d' | echo -e "=======\nTotal Number of Rules: $(wc -l)" >> "${COLLECT_DIR}"/networking/iptables-legacy-filter.txt
+    iptables-legacy --wait 1 --numeric --verbose --list --table nat | tee "${COLLECT_DIR}"/networking/iptables-legacy-nat.txt | sed '/^num\|^$\|^Chain\|^\ pkts.*.destination/d' | echo -e "=======\nTotal Number of Rules: $(wc -l)" >> "${COLLECT_DIR}"/networking/iptables-legacy-nat.txt
+    iptables-legacy --wait 1 --numeric --verbose --list | tee "${COLLECT_DIR}"/networking/iptables-legacy.txt | sed '/^num\|^$\|^Chain\|^\ pkts.*.destination/d' | echo -e "=======\nTotal Number of Rules: $(wc -l)" >> "${COLLECT_DIR}"/networking/iptables-legacy.txt
+    iptables-legacy-save > "${COLLECT_DIR}"/networking/iptables-legacy-save.txt
   fi
 
   ok
@@ -352,6 +373,10 @@ get_common_logs() {
         cp --force --dereference --recursive /var/log/containers/kube-proxy* "${COLLECT_DIR}"/var_log/ 2> /dev/null
         cp --force --dereference --recursive /var/log/containers/ebs-csi* "${COLLECT_DIR}"/var_log/ 2> /dev/null
         cp --force --dereference --recursive /var/log/containers/efs-csi* "${COLLECT_DIR}"/var_log/ 2> /dev/null
+        cp --force --dereference --recursive /var/log/containers/fsx-csi* "${COLLECT_DIR}"/var_log/ 2> /dev/null
+        cp --force --dereference --recursive /var/log/containers/fsx-openzfs-csi* "${COLLECT_DIR}"/var_log/ 2> /dev/null
+        cp --force --dereference --recursive /var/log/containers/file-cache-csi* "${COLLECT_DIR}"/var_log/ 2> /dev/null
+        cp --force --dereference --recursive /var/log/containers/eks-pod-identity-agent* "${COLLECT_DIR}"/var_log/ 2> /dev/null
         continue
       fi
       if [[ "${entry}" == "pods" ]]; then
@@ -361,6 +386,10 @@ get_common_logs() {
         cp --force --dereference --recursive /var/log/pods/kube-system_kube-proxy* "${COLLECT_DIR}"/var_log/ 2> /dev/null
         cp --force --dereference --recursive /var/log/pods/kube-system_ebs-csi-* "${COLLECT_DIR}"/var_log/ 2> /dev/null
         cp --force --dereference --recursive /var/log/pods/kube-system_efs-csi-* "${COLLECT_DIR}"/var_log/ 2> /dev/null
+        cp --force --dereference --recursive /var/log/pods/kube-system_fsx-csi-* "${COLLECT_DIR}"/var_log/ 2> /dev/null
+        cp --force --dereference --recursive /var/log/pods/kube-system_fsx-openzfs-csi-* "${COLLECT_DIR}"/var_log/ 2> /dev/null
+        cp --force --dereference --recursive /var/log/pods/kube-system_file-cache-csi-* "${COLLECT_DIR}"/var_log/ 2> /dev/null
+        cp --force --dereference --recursive /var/log/pods/kube-system_eks-pod-identity-agent* "${COLLECT_DIR}"/var_log/ 2> /dev/null
         continue
       fi
       cp --force --recursive --dereference /var/log/"${entry}" "${COLLECT_DIR}"/var_log/ 2> /dev/null
@@ -379,6 +408,14 @@ get_kernel_info() {
   dmesg > "${COLLECT_DIR}/kernel/dmesg.current"
   dmesg --ctime > "${COLLECT_DIR}/kernel/dmesg.human.current"
   uname -a > "${COLLECT_DIR}/kernel/uname.txt"
+
+  ok
+}
+
+# collect modinfo on specific modules for debugging purposes
+get_modinfo() {
+  try "collect modinfo"
+  modinfo lustre > "${COLLECT_DIR}/modinfo/lustre"
 
   ok
 }
@@ -463,12 +500,16 @@ get_ipamd_info() {
     echo "Ignoring IPAM introspection stats as mentioned" | tee -a "${COLLECT_DIR}"/ipamd/ipam_introspection_ignore.txt
   fi
 
+  ok
+
   if [[ "${ignore_metrics}" == "false" ]]; then
     try "collect L-IPAMD prometheus metrics"
     curl --max-time 3 --silent http://localhost:61678/metrics > "${COLLECT_DIR}"/ipamd/metrics.json 2>&1
   else
     echo "Ignoring Prometheus Metrics collection as mentioned" | tee -a "${COLLECT_DIR}"/ipamd/ipam_metrics_ignore.txt
   fi
+
+  ok
 
   try "collect L-IPAMD checkpoint"
   cp /var/run/aws-node/ipam.json "${COLLECT_DIR}"/ipamd/ipam.json
@@ -488,6 +529,18 @@ get_sysctls_info() {
   # dump all sysctls
   sysctl --all >> "${COLLECT_DIR}"/sysctls/sysctl_all.txt 2> /dev/null
 
+  ok
+}
+
+get_network_policy_ebpf_info() {
+  try "collect network policy ebpf loaded data"
+  echo "*** EBPF loaded data ***" >> "${COLLECT_DIR}"/networking/ebpf-data.txt
+  LOADED_EBPF=$(/opt/cni/bin/aws-eks-na-cli ebpf loaded-ebpfdata | tee -a "${COLLECT_DIR}"/networking/ebpf-data.txt)
+
+  for mapid in $(echo "$LOADED_EBPF" | grep "Map ID:" | sed 's/Map ID: \+//' | sort | uniq); do
+    echo "*** EBPF Maps Data for Map ID $mapid ***" >> "${COLLECT_DIR}"/networking/ebpf-maps-data.txt
+    /opt/cni/bin/aws-eks-na-cli ebpf dump-maps $mapid >> "${COLLECT_DIR}"/networking/ebpf-maps-data.txt
+  done
   ok
 }
 
@@ -519,11 +572,19 @@ get_networking_info() {
     CA_CRT=$(grep certificate-authority: "${COLLECT_DIR}"/kubelet/kubeconfig.yaml | sed 's/.*certificate-authority: //')
     for i in $(seq 5); do
       echo -e "curling ${API_SERVER} ($i of 5) $(date --utc +%FT%T.%3N%Z)\n\n" >> ${COLLECT_DIR}"/networking/curl_api_server.txt"
-      timeout 75 curl -v --cacert "${CA_CRT}" "${API_SERVER}"/livez?verbose >> ${COLLECT_DIR}"/networking/curl_api_server.txt" 2>&1
+      timeout 75 curl -v --connect-timeout 3 --max-time 10 --noproxy '*' --cacert "${CA_CRT}" "${API_SERVER}"/livez?verbose >> ${COLLECT_DIR}"/networking/curl_api_server.txt" 2>&1
     done
   fi
 
   cp /etc/resolv.conf "${COLLECT_DIR}"/networking/resolv.conf
+
+  # collect ethtool -S for all interfaces
+  INTERFACES=$(ip -o a | awk '{print $2}' | sort -n | uniq)
+  for ifc in ${INTERFACES}; do
+    echo "Interface ${ifc}" >> "${COLLECT_DIR}"/networking/ethtool.txt
+    ethtool -S ${ifc} >> "${COLLECT_DIR}"/networking/ethtool.txt 2>&1
+    echo -e "\n" >> "${COLLECT_DIR}"/networking/ethtool.txt
+  done
   ok
 }
 
@@ -532,6 +593,35 @@ get_cni_config() {
 
   if [[ -e "/etc/cni/net.d/" ]]; then
     cp --force --recursive --dereference /etc/cni/net.d/* "${COLLECT_DIR}"/cni/
+  fi
+
+  ok
+}
+
+get_cni_configuration_variables() {
+  # To get cni configuration variables, gather from the main container "amazon-k8s-cni"
+  # - https://github.com/aws/amazon-vpc-cni-k8s#cni-configuration-variables
+  try "collect CNI Configuration Variables from Docker"
+
+  # "docker container list" will only show "RUNNING" containers.
+  # "docker container inspect" will generate plain text output.
+  if [[ "$(pgrep -o dockerd)" -ne 0 ]]; then
+    timeout 75 docker container list | awk '/amazon-k8s-cni/{print$NF}' | xargs -n 1 docker container inspect > "${COLLECT_DIR}"/cni/cni-configuration-variables-dockerd.txt 2>&1 || echo -e "\tTimed out, ignoring \"cni configuration variables output \" "
+  else
+    warning "The Docker daemon is not running."
+  fi
+
+  try "collect CNI Configuration Variables from Containerd"
+
+  # "ctr container list" will list down all containers, including stopped ones.
+  # "ctr container info" will generate JSON format output.
+  if ! command -v ctr > /dev/null 2>&1; then
+    warning "ctr not installed"
+  else
+    # "ctr --namespace k8s.io container list" will return two containers
+    # - amazon-k8s-cni:v1.xx.yy
+    # - amazon-k8s-cni-init:v1.xx.yy
+    timeout 75 ctr --namespace k8s.io container list | awk '/amazon-k8s-cni:v/{print$1}' | xargs -n 1 ctr --namespace k8s.io container info > "${COLLECT_DIR}"/cni/cni-configuration-variables-containerd.json 2>&1 || echo -e "\tTimed out, ignoring \"cni configuration variables output \" "
   fi
 
   ok

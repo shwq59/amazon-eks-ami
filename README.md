@@ -1,5 +1,13 @@
 # Amazon EKS AMI Build Specification
 
+## This branch will be deleted on **March 30, 2024**!
+
+The default branch of this repository has changed to `main`.
+
+This change coincides with a reorganization of the project sources. You may continue using the `master` branch as you update your downstream dependencies, but you'll need to explicitly check out the `master` branch after February 29, 2024.
+
+---
+
 This repository contains resources and configuration scripts for building a
 custom Amazon EKS AMI with [HashiCorp Packer](https://www.packer.io/). This is
 the same configuration that Amazon EKS uses to create the official Amazon
@@ -33,7 +41,7 @@ following command in the root of this repository:
 make
 
 # build an AMI with a specific Kubernetes version
-make 1.25
+make k8s=1.29
 ```
 
 The Makefile chooses a particular kubelet binary to use per Kubernetes version which you can [view here](Makefile).
@@ -44,7 +52,7 @@ The Makefile chooses a particular kubelet binary to use per Kubernetes version w
 
 ## 👩‍💻 Using the AMI
 
-The [AMI user guide](doc/USER_GUIDE.md) has details about the AMI's internals, and the [EKS user guide](https://docs.aws.amazon.com/eks/latest/userguide/launch-templates.html#launch-template-custom-ami) explains how to use a custom AMI in a managed node group.
+The [AMI user guide](https://awslabs.github.io/amazon-eks-ami/USER_GUIDE/) has details about the AMI's internals, and the [EKS user guide](https://docs.aws.amazon.com/eks/latest/userguide/launch-templates.html#launch-template-custom-ami) explains how to use a custom AMI in a managed node group.
 
 ## 🔒 Security
 
